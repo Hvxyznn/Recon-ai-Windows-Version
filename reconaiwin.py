@@ -6,18 +6,12 @@ import time
 import argparse
 import shutil
 
-# =====================================================================
-# INJEÇÃO DINÂMICA DE PATH NO WINDOWS
-# Garante que o script ache os .exe instalados pelo Go sem o usuário
-# precisar configurar as Variáveis de Ambiente manualmente.
-# =====================================================================
 USER_PROFILE = os.environ.get('USERPROFILE', '')
 GO_BIN_PATH = os.path.join(USER_PROFILE, 'go', 'bin')
 
 if GO_BIN_PATH not in os.environ.get('PATH', ''):
     os.environ['PATH'] = f"{GO_BIN_PATH};{os.environ.get('PATH', '')}"
 
-# Tenta importar psutil para o controle de WAF. Se não tiver, o --setup resolve.
 try:
     import psutil
 except ImportError:
@@ -49,7 +43,6 @@ def verificar_golang():
 
 def instalar_dependencias():
     verificar_golang()
-    
     comandos_pip = "pip install google-generativeai openai arjun psutil"
     comandos_go = [
         "go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest",
@@ -60,18 +53,14 @@ def instalar_dependencias():
         "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
         "go install -v github.com/hahwul/dalfox/v2@latest"
     ]
-    
     print(f"\n[*] Instalando bibliotecas do Python (psutil, genai, arjun)...")
     subprocess.run(comandos_pip, shell=True)
-    
     print(f"\n[*] Baixando e compilando binarios de seguranca via Go (Isso pode demorar)...")
     for cmd in comandos_go:
         print(f" -> Executando: {cmd}")
         subprocess.run(cmd, shell=True)
-        
     print("\n[*] Atualizando banco de dados de vulnerabilidades (Nuclei)...")
     subprocess.run("nuclei -update-templates", shell=True)
-    
     print("\n[+] Setup concluido com sucesso! O sistema esta pronto para uso.")
     print("[*] Dica: Nao esqueca de configurar a chave da IA com o comando --set-api")
 
@@ -97,7 +86,6 @@ def checar_ferramentas():
     for f in ferramentas:
         if not shutil.which(f) and not shutil.which(f + ".exe"):
             faltantes.append(f)
-            
     if faltantes:
         print(f"[!] Ferramentas ausentes: {', '.join(faltantes)}")
         print("[!] Rode 'python recon-ai-win.py --setup' para baixar automaticamente.\n")
@@ -110,13 +98,11 @@ def executar_comando(comando, arquivo_log=None, monitorar_429=False, limite_429=
     )
     contador_429 = 0
     saida_completa = []
-    
     for linha in processo.stdout:
         linha_limpa = linha.strip()
         if not linha_limpa:
             continue
         saida_completa.append(linha_limpa)
-        
         if monitorar_429 and psutil:
             try:
                 dados = json.loads(linha_limpa)
@@ -132,9 +118,8 @@ def executar_comando(comando, arquivo_log=None, monitorar_429=False, limite_429=
                     contador_429 = 0
             except json.JSONDecodeError:
                 pass
-            except Exception as e:
+            except Exception:
                 pass
-                
     processo.wait()
     if arquivo_log and saida_completa:
         with open(arquivo_log, "w", encoding="utf-8") as f:
@@ -220,13 +205,11 @@ def fase_5_scanning(arquivo_urls, arquivo_endpoints, pasta):
     print("\n[+] FASE 5: Varredura (Nuclei + Dalfox)")
     nuclei_json = os.path.join(pasta, "nuclei.json")
     dalfox_out = os.path.join(pasta, "dalfox.txt")
-    
     executar_comando([
         "nuclei", "-list", arquivo_urls, "-rate-limit", "30", "-delay", "1",
         "-random-agent", "-tags", "cve,misconfig,takeover,sqli", 
         "-severity", "medium,high,critical", "-json-export", nuclei_json, "-silent"
     ], monitorar_429=True)
-    
     endpoints_params = os.path.join(pasta, "endpoints_params.txt")
     total_params = 0
     if os.path.exists(arquivo_endpoints):
@@ -248,7 +231,6 @@ def fase_6_ia(provedor, nuclei_json, dalfox_out, arjun_json):
     if not chave:
         print(f"[!] Chave da API {provedor} nao encontrada. Use --set-api antes de rodar o scan.")
         sys.exit(1)
-        
     consolidado = {"nuclei": [], "dalfox": [], "arjun": {}}
     if os.path.exists(nuclei_json):
         with open(nuclei_json, "r", encoding="utf-8", errors="ignore") as f:
@@ -271,14 +253,11 @@ def fase_6_ia(provedor, nuclei_json, dalfox_out, arjun_json):
                 consolidado["arjun"] = json.load(f)
         except:
             pass
-
     if not consolidado["nuclei"] and not consolidado["dalfox"]:
         print("[*] Nenhuma falha detectada pelas ferramentas.")
         return
-
     prompt = f"Você é um Bug Hunter Sênior. Descarte falsos positivos e liste apenas vulnerabilidades reais formatadas para o terminal, incluindo alvo, impacto e comando de validação manual. Dados:\n{json.dumps(consolidado)}"
     print(f"[*] Solicitando analise ao modelo {provedor.upper()}...\n")
-    
     if provedor == "gemini":
         import google.generativeai as genai
         genai.configure(api_key=chave)
@@ -314,14 +293,11 @@ def main():
     if args.target and args.ai:
         exibir_banner()
         checar_ferramentas()
-        
         pasta_saida = f"out_{args.target.replace('.', '_')}"
         os.makedirs(pasta_saida, exist_ok=True)
         print(f"[*] Iniciando pipeline contra o alvo: {args.target}")
-        
         subs = fase_1_subdominios(args.target, pasta_saida)
         urls = fase_2_web_probing(subs, pasta_saida)
-        
         if os.path.exists(urls) and os.stat(urls).st_size > 0:
             endpoints = fase_3_crawling(urls, args.target, pasta_saida)
             arjun = fase_4_fuzzing(urls, pasta_saida)
